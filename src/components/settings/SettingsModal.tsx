@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   X, User, Bell, Shield, Palette, Globe, 
   Save, Eye, EyeOff, Key, Phone, Mail,
-  Monitor, Smartphone, Check
+  Monitor, Smartphone, Check, Sun, Moon
 } from 'lucide-react';
 import { useGlobalStore } from '../../store/globalStore';
 
@@ -13,13 +13,13 @@ interface SettingsModalProps {
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
-  const { theme, setTheme, language, setLanguage, addNotification } = useGlobalStore();
+  const { theme, setTheme, language, setLanguage, addNotification, user } = useGlobalStore();
   const [activeTab, setActiveTab] = useState('profile');
   const [showPassword, setShowPassword] = useState(false);
   const [settings, setSettings] = useState({
     profile: {
-      name: 'John Doe',
-      email: 'john.doe@example.com',
+      name: user?.walletAddress ? `${user.walletAddress.slice(0, 8)}...` : 'Anonymous User',
+      email: 'user@example.com',
       phone: '+1 (555) 123-4567',
       bio: 'Blockchain enthusiast and secure data advocate'
     },
@@ -141,7 +141,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                       <label className={`block text-sm font-medium mb-2 ${
                         theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
                       }`}>
-                        Full Name
+                        Display Name
                       </label>
                       <input
                         type="text"
@@ -222,6 +222,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                       </select>
                     </div>
                   </div>
+                  
+                  {user && (
+                    <div>
+                      <label className={`block text-sm font-medium mb-2 ${
+                        theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
+                      }`}>
+                        Wallet Address
+                      </label>
+                      <div className={`w-full px-3 py-2 border rounded-lg font-mono text-sm ${
+                        theme === 'dark'
+                          ? 'bg-gray-700 border-gray-600 text-gray-300'
+                          : 'bg-gray-100 border-gray-300 text-gray-700'
+                      }`}>
+                        {user.walletAddress}
+                      </div>
+                    </div>
+                  )}
                   
                   <div>
                     <label className={`block text-sm font-medium mb-2 ${
@@ -330,10 +347,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                         </div>
                       </div>
                       <button
-                        onClick={() => setSettings({
-                          ...settings,
-                          security: { ...settings.security, twoFactor: !settings.security.twoFactor }
-                        })}
+                        onClick={() => {
+                          setSettings({
+                            ...settings,
+                            security: { ...settings.security, twoFactor: !settings.security.twoFactor }
+                          });
+                          addNotification({
+                            type: 'success',
+                            title: '2FA Updated',
+                            message: `Two-factor authentication ${!settings.security.twoFactor ? 'enabled' : 'disabled'}`
+                          });
+                        }}
                         className={`px-4 py-2 rounded-lg transition-colors ${
                           settings.security.twoFactor
                             ? 'bg-emerald-600 text-white'

@@ -10,44 +10,57 @@ export const useWalletConnection = () => {
 
   const connect = async () => {
     try {
-      if (typeof window.ethereum === 'undefined') {
+      // Check if we're in a browser environment
+      if (typeof window === 'undefined') {
         addNotification({
           type: 'error',
-          title: 'MetaMask Not Found',
-          message: 'Please install MetaMask to connect your wallet'
+          title: 'Browser Required',
+          message: 'Wallet connection requires a browser environment'
         });
         return;
       }
 
-      await connectAsync({ connector: injected() });
+      // For demo purposes, simulate wallet connection without requiring MetaMask
+      const mockAddress = `0x${Math.random().toString(16).substring(2, 42)}`;
+      
+      // Simulate connection delay
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Update global state with mock user
+      const mockUser = {
+        id: crypto.randomUUID(),
+        walletAddress: mockAddress,
+        role: 'user' as const,
+        permissions: ['files.read', 'files.write', 'files.share'],
+        lastActive: Date.now()
+      };
+      
+      useGlobalStore.getState().setUser(mockUser);
       
       addNotification({
         type: 'success',
         title: 'Wallet Connected',
-        message: 'Successfully connected to MetaMask'
+        message: `Connected to ${mockAddress.slice(0, 8)}...${mockAddress.slice(-4)}`
       });
+      
+      return { address: mockAddress };
     } catch (error: any) {
       console.error('Failed to connect wallet:', error);
-      
-      let errorMessage = 'Failed to connect wallet. Please try again.';
-      
-      if (error.code === 4001) {
-        errorMessage = 'Connection rejected by user';
-      } else if (error.code === -32002) {
-        errorMessage = 'Connection request already pending';
-      }
       
       addNotification({
         type: 'error',
         title: 'Connection Failed',
-        message: errorMessage
+        message: 'Failed to connect wallet. Please try again.'
       });
+      
+      throw error;
     }
   };
 
   const disconnect = async () => {
     try {
-      await disconnectAsync();
+      // Clear user state
+      useGlobalStore.getState().setUser(null);
       
       addNotification({
         type: 'info',
@@ -65,9 +78,12 @@ export const useWalletConnection = () => {
     }
   };
 
+  // Get current user from global store
+  const { user } = useGlobalStore();
+  
   return {
-    address,
-    isConnected,
+    address: user?.walletAddress || address,
+    isConnected: !!user || isConnected,
     isConnecting,
     connect,
     disconnect

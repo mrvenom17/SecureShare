@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { 
   Files, Upload, Download, Share2, Trash2, Eye, 
   Search, Filter, Grid, List, MoreVertical, 
-  Lock, Unlock, Clock, User, FileText, Image, Video
+  Lock, Unlock, Clock, User, FileText, Image, Video,
+  CheckCircle, AlertCircle
 } from 'lucide-react';
 import { useGlobalStore } from '../../store/globalStore';
 import { useSubscription } from '../subscription/SubscriptionProvider';
@@ -28,6 +29,7 @@ export const FileManager: React.FC = () => {
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
   const [sortBy, setSortBy] = useState<'name' | 'date' | 'size'>('name');
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
   const [shareModal, setShareModal] = useState<{
     isOpen: boolean;
     file: { id: string; name: string; owner: string } | null;
@@ -35,6 +37,8 @@ export const FileManager: React.FC = () => {
     isOpen: false,
     file: null
   });
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const formatFileSize = (bytes: number) => {
     const sizes = ['Bytes', 'KB', 'MB', 'GB'];
@@ -44,22 +48,45 @@ export const FileManager: React.FC = () => {
   };
 
   const getFileIcon = (type: string) => {
-    switch (type) {
-      case 'document': return <FileText className="w-5 h-5" />;
-      case 'image': return <Image className="w-5 h-5" />;
-      case 'video': return <Video className="w-5 h-5" />;
-      default: return <Files className="w-5 h-5" />;
-    }
+    if (type.startsWith('image/')) return <Image className="w-5 h-5" />;
+    if (type.startsWith('video/')) return <Video className="w-5 h-5" />;
+    return <FileText className="w-5 h-5" />;
   };
 
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const uploadedFiles = event.target.files;
-    if (!uploadedFiles || !user) return;
+  const simulateFileUpload = async (file: File): Promise<void> => {
+    return new Promise((resolve) => {
+      let progress = 0;
+      const interval = setInterval(() => {
+        progress += Math.random() * 30;
+        if (progress >= 100) {
+          progress = 100;
+          clearInterval(interval);
+          setUploadProgress(prev => {
+            const newProgress = { ...prev };
+            delete newProgress[file.name];
+            return newProgress;
+          });
+          resolve();
+        }
+        setUploadProgress(prev => ({ ...prev, [file.name]: progress }));
+      }, 200);
+    });
+  };
+
+  const handleFileUpload = async (selectedFiles: FileList | null) => {
+    if (!selectedFiles || !user) {
+      addNotification({
+        type: 'error',
+        title: 'Upload Failed',
+        message: 'Please connect your wallet first'
+      });
+      return;
+    }
 
     setIsUploading(true);
 
-    for (let i = 0; i < uploadedFiles.length; i++) {
-      const file = uploadedFiles[i];
+    for (let i = 0; i < selectedFiles.length; i++) {
+      const file = selectedFiles[i];
       
       // Check file limit before uploading
       if (!checkAndEnforceLimit('files', 1)) {
@@ -74,8 +101,11 @@ export const FileManager: React.FC = () => {
       }
       
       try {
+        // Start upload progress
+        setUploadProgress(prev => ({ ...prev, [file.name]: 0 }));
+        
         // Simulate file processing and encryption
-        await new Promise(resolve => setTimeout(resolve, 1500));
+        await simulateFileUpload(file);
         
         const newFile = {
           id: crypto.randomUUID(),
@@ -100,7 +130,19 @@ export const FileManager: React.FC = () => {
         addNotification({
           type: 'success',
           title: 'File Uploaded Successfully',
-          message: `${file.name} has been encrypted and uploaded to IPFS`
+          message: `${file.name} has been encrypted and uploaded`
+        });
+
+        addActivity({
+          type: 'file_upload',
+          action: 'File Uploaded',
+          user: user.walletAddress,
+          resource: file.name,
+          ipAddress: '192.168.1.100',
+          userAgent: navigator.userAgent,
+          location: 'Unknown',
+          severity: 'low',
+          details: `File ${file.name} uploaded and encrypted`
         });
       } catch (error) {
         addNotification({
@@ -112,7 +154,19 @@ export const FileManager: React.FC = () => {
     }
 
     setIsUploading(false);
-    event.target.value = ''; // Reset input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const droppedFiles = e.dataTransfer.files;
+    handleFileUpload(droppedFiles);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
   };
 
   const handleFileAction = (action: string, fileId: string) => {
@@ -124,19 +178,22 @@ export const FileManager: React.FC = () => {
         // Check API limit for downloads
         if (!checkAndEnforceLimit('apiCalls', 1)) return;
         
-        // Simulate file download
-        const link = document.createElement('a');
-        link.href = file.thumbnail || '#';
-        link.download = file.name;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        // Create a download link
+        const element = document.createElement('a');
+        const fileContent = `File: ${file.name}\nSize: ${formatFileSize(file.size)}\nUploaded: ${new Date(file.createdAt).toLocaleString()}\nIPFS Hash: ${file.ipfsHash}`;
+        const fileBlob = new Blob([fileContent], { type: 'text/plain' });
+        element.href = URL.createObjectURL(fileBlob);
+        element.download = file.name;
+        document.body.appendChild(element);
+        element.click();
+        document.body.removeChild(element);
         
         addNotification({
           type: 'success',
           title: 'Download Started',
           message: `Downloading ${file.name}`
         });
+        
         addActivity({
           type: 'file_access',
           action: 'File Downloaded',
@@ -167,6 +224,18 @@ export const FileManager: React.FC = () => {
           type: 'warning',
           title: 'File Deleted',
           message: `${file.name} has been permanently deleted`
+        });
+        
+        addActivity({
+          type: 'file_upload',
+          action: 'File Deleted',
+          user: user.walletAddress,
+          resource: file.name,
+          ipAddress: '192.168.1.100',
+          userAgent: navigator.userAgent,
+          location: 'Unknown',
+          severity: 'medium',
+          details: `File ${file.name} was deleted`
         });
         break;
         
@@ -211,17 +280,18 @@ export const FileManager: React.FC = () => {
           </div>
           <div className="flex items-center space-x-3">
             <input
+              ref={fileInputRef}
               type="file"
               multiple
-              onChange={handleFileUpload}
+              onChange={(e) => handleFileUpload(e.target.files)}
               className="hidden"
               id="file-upload"
-              disabled={isUploading}
+              disabled={isUploading || !user}
             />
             <label
               htmlFor="file-upload"
               className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-colors cursor-pointer ${
-                isUploading
+                isUploading || !user
                   ? 'bg-gray-400 cursor-not-allowed'
                   : 'bg-emerald-600 hover:bg-emerald-700'
               } text-white`}
@@ -231,6 +301,58 @@ export const FileManager: React.FC = () => {
             </label>
           </div>
         </div>
+
+        {/* Connection Status */}
+        {!user && (
+          <div className={`rounded-xl border p-4 ${
+            theme === 'dark' ? 'bg-yellow-900/20 border-yellow-700' : 'bg-yellow-50 border-yellow-200'
+          }`}>
+            <div className="flex items-center space-x-3">
+              <AlertCircle className="w-5 h-5 text-yellow-600" />
+              <div>
+                <h3 className={`font-medium ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
+                  Wallet Not Connected
+                </h3>
+                <p className={`text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
+                  Please connect your wallet to upload and manage files.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Upload Progress */}
+        {Object.keys(uploadProgress).length > 0 && (
+          <div className={`rounded-xl border p-4 ${
+            theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
+          }`}>
+            <h3 className={`font-medium mb-3 ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
+              Upload Progress
+            </h3>
+            <div className="space-y-3">
+              {Object.entries(uploadProgress).map(([fileName, progress]) => (
+                <div key={fileName}>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className={`text-sm ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
+                      {fileName}
+                    </span>
+                    <span className={`text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+                      {Math.round(progress)}%
+                    </span>
+                  </div>
+                  <div className={`w-full rounded-full h-2 ${
+                    theme === 'dark' ? 'bg-gray-700' : 'bg-gray-200'
+                  }`}>
+                    <div 
+                      className="bg-emerald-500 h-2 rounded-full transition-all duration-300"
+                      style={{ width: `${progress}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Toolbar */}
         <div className={`rounded-xl shadow-sm border p-4 ${
@@ -268,15 +390,6 @@ export const FileManager: React.FC = () => {
                 <option value="date">Sort by Date</option>
                 <option value="size">Sort by Size</option>
               </select>
-              
-              <button className={`flex items-center space-x-2 px-3 py-2 border rounded-lg transition-colors ${
-                theme === 'dark'
-                  ? 'border-gray-600 text-gray-300 hover:bg-gray-700'
-                  : 'border-gray-300 text-gray-600 hover:bg-gray-50'
-              }`}>
-                <Filter className="w-4 h-4" />
-                <span>Filter</span>
-              </button>
             </div>
             
             <div className="flex items-center space-x-2">
@@ -307,6 +420,31 @@ export const FileManager: React.FC = () => {
             </div>
           </div>
         </div>
+
+        {/* Drop Zone */}
+        {user && (
+          <div
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+            className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors ${
+              theme === 'dark'
+                ? 'border-gray-600 hover:border-emerald-500 bg-gray-800/50'
+                : 'border-gray-300 hover:border-emerald-500 bg-gray-50'
+            }`}
+          >
+            <Upload className={`w-12 h-12 mx-auto mb-4 ${
+              theme === 'dark' ? 'text-gray-500' : 'text-gray-400'
+            }`} />
+            <p className={`text-lg font-medium mb-2 ${
+              theme === 'dark' ? 'text-white' : 'text-gray-900'
+            }`}>
+              Drop files here to upload
+            </p>
+            <p className={`${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
+              Or click the upload button above
+            </p>
+          </div>
+        )}
 
         {/* File Grid/List */}
         {filteredFiles.length === 0 ? (
@@ -347,7 +485,7 @@ export const FileManager: React.FC = () => {
                     <div className={`w-full h-32 rounded-lg mb-3 flex items-center justify-center ${
                       theme === 'dark' ? 'bg-gray-700' : 'bg-gray-100'
                     }`}>
-                      {getFileIcon('document')}
+                      {getFileIcon(file.mimeType)}
                     </div>
                   )}
                   
@@ -419,18 +557,6 @@ export const FileManager: React.FC = () => {
                       <Share2 className="w-3 h-3" />
                     </button>
                     <button
-                      onClick={() => handleFileAction('encrypt', file.id)}
-                      className={`p-1 transition-colors ${
-                        file.encrypted 
-                          ? 'text-green-600' 
-                          : theme === 'dark' 
-                            ? 'text-gray-400 hover:text-green-400' 
-                            : 'text-gray-600 hover:text-green-600'
-                      }`}
-                    >
-                      {file.encrypted ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
-                    </button>
-                    <button
                       onClick={() => handleFileAction('delete', file.id)}
                       className={`p-1 transition-colors ${
                         theme === 'dark' 
@@ -494,7 +620,7 @@ export const FileManager: React.FC = () => {
                           <div className={`w-8 h-8 rounded flex items-center justify-center ${
                             theme === 'dark' ? 'bg-gray-700' : 'bg-gray-100'
                           }`}>
-                            {getFileIcon('document')}
+                            {getFileIcon(file.mimeType)}
                           </div>
                         )}
                       </div>
