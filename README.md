@@ -25,7 +25,7 @@ Enterprise-grade secure data sharing platform built on blockchain technology.
 
 1. **Clone the repository**
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/mrvenom17/SecureShare
    cd secureshare-elite
    ```
 
